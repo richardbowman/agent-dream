@@ -1,4 +1,4 @@
-# claude-code-dream
+# agent-dream
 
 A Claude Code skill that mines your own conversation history to find mistakes, corrections, and stated preferences — then automatically writes memory rules to fix them.
 
@@ -46,11 +46,11 @@ Not AGI. Log parsing + structured memory writing. But the practical effect is an
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/richardbowman/claude-code-dream/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/richardbowman/agent-dream/main/install.sh | bash
 ```
 
 That's it. The installer:
-1. Copies `SKILL.md` to `~/.claude/skills/dream/`
+1. Copies `skills/dream/SKILL.md` to `~/.claude/skills/dream/`
 2. Adds the trigger line to your `~/.claude/CLAUDE.md` skills table (if you have one)
 
 Then start a new Claude Code session and run:
@@ -64,12 +64,12 @@ Then start a new Claude Code session and run:
 If you prefer not to pipe to bash:
 
 ```bash
-git clone https://github.com/richardbowman/claude-code-dream
-cd claude-code-dream
+git clone https://github.com/richardbowman/agent-dream
+cd agent-dream
 bash install.sh
 ```
 
-Or fully manual — copy `SKILL.md` to `~/.claude/skills/dream/SKILL.md` and add this line to your skills table in `~/.claude/CLAUDE.md`:
+Or fully manual — copy `skills/dream/SKILL.md` to `~/.claude/skills/dream/SKILL.md` and add this line to your skills table in `~/.claude/CLAUDE.md`:
 
 ```
 | Consolidate memory, mine conversation logs for friction/feedback, run /dream | `dream` |

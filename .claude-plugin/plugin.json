@@ -1,0 +1,10 @@
+{
+  "name": "agent-dream",
+  "displayName": "Agent Dream",
+  "description": "Memory consolidation and friction mining for Claude Code",
+  "version": "1.0.0",
+  "skills": "./skills",
+  "author": {
+    "name": "Richard Bowman"
+  }
+}
