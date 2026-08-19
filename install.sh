@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-command setup for claude-code-dream
+# install.sh — one-command setup for agent-dream
 # Usage: bash install.sh
 
 set -e
@@ -7,18 +7,20 @@ set -e
 SKILL_DIR="$HOME/.claude/skills/dream"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
 TRIGGER_LINE="| Consolidate memory, mine conversation logs for friction/feedback, run /dream | \`dream\` |"
-SKILL_URL="https://raw.githubusercontent.com/richardbowman/claude-code-dream/main/SKILL.md"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_SOURCE="$SCRIPT_DIR/skills/dream/SKILL.md"
+SKILL_URL="https://raw.githubusercontent.com/richardbowman/agent-dream/main/skills/dream/SKILL.md"
 
 echo ""
-echo "Installing claude-code-dream skill..."
+echo "Installing agent-dream skill..."
 echo ""
 
 # 1. Install skill file
 mkdir -p "$SKILL_DIR"
-# When piped via curl | bash, dirname "$0" resolves to "." and SKILL.md won't be present,
-# so download from GitHub directly instead.
-if [ -f "$(dirname "$0")/SKILL.md" ]; then
-    cp "$(dirname "$0")/SKILL.md" "$SKILL_DIR/SKILL.md"
+# When piped via curl | bash, the repository skill file won't be present, so
+# download it from GitHub directly instead.
+if [ -f "$SKILL_SOURCE" ]; then
+    cp "$SKILL_SOURCE" "$SKILL_DIR/SKILL.md"
 else
     curl -fsSL "$SKILL_URL" -o "$SKILL_DIR/SKILL.md"
 fi
