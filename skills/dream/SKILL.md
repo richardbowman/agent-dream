@@ -42,171 +42,137 @@ Read all existing `MEMORY.md` files and `feedback_*.md` files so you know what's
 
 ## Phase 2: FRICTION SCAN
 
-Run this Python script via Bash to extract user messages that signal frustration, corrections, or stated preferences. This is the core of what makes this skill different from standard memory consolidation.
+Run this Node/TypeScript script to extract user messages that signal frustration, corrections, or stated preferences. This is the core of what makes this skill different from standard memory consolidation. It needs Node 22.18+ (runs `.ts` natively, no compile step) and no packages.
+
+Write it to a temp file, run it, and delete it. Do not leave the script behind.
 
 ```bash
-python3 << 'PYEOF'
-import json, glob, os, re
-from datetime import datetime, timezone, timedelta
+SCAN_DIR=$(mktemp -d)
+cat > "$SCAN_DIR/dream-scan.ts" << 'TSEOF'
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-LAST_RUN_FILE = os.path.expanduser("~/.claude/dream-last-run")
-LOGS_DIR = os.path.expanduser("~/.claude/projects")
+const LOGS_DIR = path.join(os.homedir(), ".claude/projects");
+const LAST_RUN_FILE = path.join(os.homedir(), ".claude/dream-last-run");
 
-# Determine scan window
-try:
-    with open(LAST_RUN_FILE) as f:
-        raw = f.read().strip()
-    last_run = datetime.fromisoformat(raw.replace('Z', '+00:00'))
-except Exception:
-    last_run = datetime.now(timezone.utc) - timedelta(days=30)
+let lastRun = Date.now() - 30 * 24 * 3600 * 1000;
+try {
+  const t = Date.parse(fs.readFileSync(LAST_RUN_FILE, "utf8").trim());
+  if (!Number.isNaN(t)) lastRun = t;
+} catch {}
+console.log(`Scanning logs since: ${new Date(lastRun).toISOString()}\n`);
 
-print(f"Scanning logs since: {last_run.isoformat()}\n")
+const FRICTION = [
+  // Direct corrections
+  /\bno[,.!]\s/i, /\bnope\b/i, /\bwrong\b/i, /\bincorrect\b/i, /\bactually[,.]/i,
+  /\bwait[,.]/i, /\bhold on\b/i, /that'?s not/i, /not what i/i, /didn'?t want/i,
+  /don'?t want/i, /why did you/i, /why are you/i,
+  // Frustration
+  /\bugh\b/i, /\bargh\b/i, /\bffs\b/i, /you keep/i, /again you/i,
+  /still (doing|not|wrong)/i, /i (told|said|asked) you/i,
+  // Redirects
+  /\bstop (doing|that|this)\b/i, /never ?mind/i, /forget (it|that|this)/i,
+  /revert (that|this|it)/i, /please don'?t/i, /don'?t do that/i,
+  // Explicit rule declarations (high-value)
+  /from now on/i, /always\b.{0,30}(do|use|run|check|make)/i,
+  /\bnever\b.{0,30}(do|use|run|add|create)/i, /remember (to|that)\b/i,
+  /don'?t forget/i, /i (prefer|want|need|like) you to/i, /going forward/i, /in the future/i,
+];
+const PRAISE = [
+  /\bperfect\b/i, /\bexactly\b/i, /love (it|this|that)/i,
+  /that'?s (exactly|what i wanted|right|it|perfect)/i,
+  /(nice|great|good) (job|work|call|catch|one)/i, /that (works|worked|did it)/i,
+  /\byes!?\b.{0,20}(that|this|perfect|exactly)/i,
+];
 
-# --- Friction signal patterns ---
-FRICTION_PATTERNS = [
-    # Direct corrections
-    r"\bno[,\.!]\s", r"\bnope\b", r"\bwrong\b", r"\bincorrect\b",
-    r"\bactually[,\.]", r"\bwait[,\.]", r"\bhold on\b",
-    r"that'?s not", r"not what i", r"didn'?t want", r"don'?t want",
-    r"why did you", r"why are you",
-    # Frustration
-    r"\bugh\b", r"\bargh\b", r"\bffs\b",
-    r"you keep", r"again you", r"still (doing|not|wrong)",
-    r"i (told|said|asked) you",
-    # Redirects
-    r"\bstop (doing|that|this)\b", r"never mind", r"nevermind",
-    r"forget (it|that|this)", r"revert (that|this|it)",
-    r"please don'?t", r"don'?t do that",
-    # Explicit rule declarations (high-value signals)
-    r"from now on", r"always\b.{0,30}(do|use|run|check|make)",
-    r"\bnever\b.{0,30}(do|use|run|add|create)",
-    r"remember (to|that)\b", r"don'?t forget",
-    r"i (prefer|want|need|like) you to",
-    r"going forward", r"in the future",
-]
+// Not the user's own words: system wrappers, subagent briefs, coordinator
+// messages, summarizer prompts, and this skill's own invocation.
+const NOISE_PREFIXES = [
+  "<system-reminder>", "<command-", "Caveat:", "Base directory for this skill",
+  "Run the dream skill", "The coordinator sent a message", "You are updating an existing",
+  "Below is a conversation transcript", "This session is being continued",
+  "Summarize this conversation", "Summary:\n", "The conversation above",
+  "You are ", "I need you to", "Repo:", "Working directory:", "[SYSTEM NOTIFICATION",
+];
+const isNoise = (t: string) => /^[[{]/.test(t) || NOISE_PREFIXES.some((p) => t.startsWith(p));
 
-# --- Praise patterns (to capture what's working) ---
-PRAISE_PATTERNS = [
-    r"\bperfect\b", r"\bexactly\b", r"love (it|this|that)",
-    r"that'?s (exactly|what i wanted|right|it|perfect)",
-    r"(nice|great|good) (job|work|call|catch|one)",
-    r"that (works|worked|did it)",
-    r"\byes!?\b.{0,20}(that|this|perfect|exactly)",
-]
+// Content is a string OR an array of blocks; join the text blocks.
+function textOf(msg: any): string {
+  const c = msg?.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) return c.filter((b) => b?.type === "text").map((b) => b.text).join("\n");
+  return "";
+}
 
-friction_compiled = [(re.compile(p, re.IGNORECASE), p) for p in FRICTION_PATTERNS]
-praise_compiled = [(re.compile(p, re.IGNORECASE), p) for p in PRAISE_PATTERNS]
+function walk(dir: string, out: string[]) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walk(p, out);
+    else if (e.name.endsWith(".jsonl") && fs.statSync(p).mtimeMs >= lastRun) out.push(p);
+  }
+}
+const files: string[] = [];
+walk(LOGS_DIR, files);
 
-friction_hits = []
-praise_hits = []
-files_scanned = 0
+type Hit = { ts: string; project: string; session: string; text: string; prior: string; pat: string };
+const friction: Hit[] = [];
+const praise: Hit[] = [];
+const seen = new Set<string>();
 
-for path in sorted(glob.glob(f"{LOGS_DIR}/**/*.jsonl", recursive=True)):
-    try:
-        mtime = os.path.getmtime(path)
-        if mtime < last_run.timestamp():
-            continue
-        files_scanned += 1
+for (const file of files) {
+  const project = path.relative(LOGS_DIR, file).split(path.sep)[0];
+  // Summarizer/scratch sessions live under the OS temp dir; skip them.
+  if (project.startsWith("-private-var-folders")) continue;
+  const lines = fs.readFileSync(file, "utf8").split("\n");
+  lines.forEach((line, i) => {
+    if (!line.startsWith("{")) return;
+    let o: any;
+    try { o = JSON.parse(line); } catch { return; }
+    if (o.type !== "user") return;
+    if (o.timestamp && Date.parse(o.timestamp) < lastRun) return;
+    const text = textOf(o.message).trim();
+    if (text.length < 8 || isNoise(text)) return;
+    const key = text.slice(0, 200);
+    if (seen.has(key)) return;
+    seen.add(key);
 
-        rel = path.replace(LOGS_DIR + "/", "")
-        project = rel.split("/")[0]
+    // What did Claude say just before? (look back up to 8 lines)
+    let prior = "";
+    for (let j = i - 1; j >= Math.max(0, i - 8) && !prior; j--) {
+      try {
+        const p = JSON.parse(lines[j]);
+        if (p.message?.role === "assistant") prior = textOf(p.message).slice(0, 200);
+      } catch {}
+    }
+    const base = { ts: (o.timestamp || "").slice(0, 10), project, session: (o.sessionId || "").slice(0, 8), text: text.slice(0, 400), prior };
+    const f = FRICTION.find((r) => r.test(text));
+    if (f) friction.push({ ...base, pat: f.source });
+    const p = PRAISE.find((r) => r.test(text));
+    if (p) praise.push({ ...base, pat: p.source });
+  });
+}
 
-        with open(path) as f:
-            lines = f.readlines()
-
-        for i, line in enumerate(lines):
-            try:
-                obj = json.loads(line)
-                if obj.get("type") != "user":
-                    continue
-                content = obj.get("message", {}).get("content", "")
-                if not isinstance(content, str) or len(content.strip()) < 8:
-                    continue
-                # Skip pure tool result messages
-                if content.startswith("{") or content.startswith("["):
-                    continue
-                # Skip system-injected messages (hook summaries, context continuations)
-                if any(content.startswith(prefix) for prefix in [
-                    "Summarize this conversation",
-                    "This session is being continued",
-                    "Summary:\n",
-                    "The conversation above",
-                ]):
-                    continue
-
-                ts = obj.get("timestamp", "")[:10]
-                session_id = obj.get("sessionId", "")[:8]
-
-                # Look back for assistant context (what did Claude do just before?)
-                prior_assistant = ""
-                for j in range(max(0, i - 8), i):
-                    try:
-                        prev = json.loads(lines[j])
-                        role = prev.get("message", {}).get("role", "")
-                        if role != "assistant":
-                            continue
-                        c = prev.get("message", {}).get("content", "")
-                        if isinstance(c, list):
-                            for block in c:
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    prior_assistant = block.get("text", "")[:200]
-                                    break
-                        elif isinstance(c, str):
-                            prior_assistant = c[:200]
-                        if prior_assistant:
-                            break
-                    except Exception:
-                        pass
-
-                entry = {
-                    "ts": ts,
-                    "session": session_id,
-                    "project": project,
-                    "text": content[:400],
-                    "prior_assistant": prior_assistant,
-                }
-
-                for compiled, pattern in friction_compiled:
-                    if compiled.search(content):
-                        entry["matched_pattern"] = pattern
-                        friction_hits.append(entry)
-                        break
-
-                for compiled, pattern in praise_compiled:
-                    if compiled.search(content):
-                        entry["matched_pattern"] = pattern
-                        praise_hits.append(entry)
-                        break
-
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-print(f"Files scanned: {files_scanned}")
-print(f"Friction signals: {len(friction_hits)}")
-print(f"Praise signals:   {len(praise_hits)}")
-print()
-
-print("=" * 60)
-print("FRICTION SIGNALS")
-print("=" * 60)
-for h in friction_hits:
-    print(f"\n[{h['ts']}] project={h['project'][:40]} session={h['session']}")
-    if h.get("prior_assistant"):
-        print(f"  Claude said: {h['prior_assistant'][:120]}...")
-    print(f"  User said:   {h['text'][:300]}")
-    print(f"  Pattern:     {h['matched_pattern']}")
-
-print()
-print("=" * 60)
-print("PRAISE SIGNALS")
-print("=" * 60)
-for h in praise_hits[:15]:
-    print(f"\n[{h['ts']}] project={h['project'][:40]}")
-    print(f"  User said:   {h['text'][:200]}")
-PYEOF
+console.log(`Files scanned: ${files.length}`);
+console.log(`Friction signals: ${friction.length}`);
+console.log(`Praise signals:   ${praise.length}\n`);
+console.log("=".repeat(60) + "\nFRICTION SIGNALS\n" + "=".repeat(60));
+for (const h of friction) {
+  console.log(`\n[${h.ts}] project=${h.project.slice(0, 40)} session=${h.session}`);
+  if (h.prior) console.log(`  Claude said: ${h.prior.slice(0, 120).replace(/\n+/g, " ")}...`);
+  console.log(`  User said:   ${h.text.slice(0, 300).replace(/\n+/g, " ")}`);
+  console.log(`  Pattern:     ${h.pat}`);
+}
+console.log("\n" + "=".repeat(60) + "\nPRAISE SIGNALS\n" + "=".repeat(60));
+for (const h of praise.slice(0, 15)) {
+  console.log(`\n[${h.ts}] project=${h.project.slice(0, 40)}`);
+  console.log(`  User said:   ${h.text.slice(0, 200).replace(/\n+/g, " ")}`);
+}
+TSEOF
+node "$SCAN_DIR/dream-scan.ts"; rm -rf "$SCAN_DIR"
 ```
+
+Even after filtering, expect some noise (subagent briefs and coordinator messages that slip past the prefix list). Judge each hit by whether it reads like the user's own words before treating it as a signal.
 
 ---
 
@@ -349,7 +315,7 @@ mkdir -p ~/.claude/dream-reports
 DATE=$(date +%Y-%m-%d)
 VAULT_PATH=$(cat ~/.claude/dream-obsidian-vault)
 VAULT_NAME=$(basename "$VAULT_PATH")
-ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Claude/dream-${DATE}'))")
+ENCODED="Claude%2Fdream-${DATE}"
 open "obsidian://open?vault=${VAULT_NAME}&file=${ENCODED}"
 ```
 

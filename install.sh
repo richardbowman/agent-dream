@@ -34,30 +34,26 @@ if [ -f "$CLAUDE_MD" ]; then
         # Look for the end of the skills table and append before it
         if grep -q "^| " "$CLAUDE_MD"; then
             # Find last table row and append after it
-            python3 << PYEOF
-import re
+            CLAUDE_MD="$CLAUDE_MD" TRIGGER="$TRIGGER_LINE" node --input-type=module << 'JSEOF'
+import fs from "node:fs";
 
-with open("$CLAUDE_MD", "r") as f:
-    content = f.read()
+const file = process.env.CLAUDE_MD;
+const trigger = process.env.TRIGGER;
+const lines = fs.readFileSync(file, "utf8").split("\n");
 
-trigger = "$TRIGGER_LINE"
+// Find the last line that looks like a table row in the skills section
+let last = -1;
+lines.forEach((l, i) => { if (l.startsWith("| ") && l.slice(2).includes("|")) last = i; });
 
-# Find the last line that looks like a table row in the skills section
-lines = content.split("\n")
-last_table_idx = -1
-for i, line in enumerate(lines):
-    if line.startswith("| ") and "|" in line[2:]:
-        last_table_idx = i
-
-if last_table_idx >= 0:
-    lines.insert(last_table_idx + 1, trigger)
-    with open("$CLAUDE_MD", "w") as f:
-        f.write("\n".join(lines))
-    print("✓ Added dream trigger to CLAUDE.md skills table")
-else:
-    print("⚠  Could not find skills table in CLAUDE.md — add this line manually:")
-    print(f"   {trigger}")
-PYEOF
+if (last >= 0) {
+  lines.splice(last + 1, 0, trigger);
+  fs.writeFileSync(file, lines.join("\n"));
+  console.log("✓ Added dream trigger to CLAUDE.md skills table");
+} else {
+  console.log("⚠  Could not find skills table in CLAUDE.md — add this line manually:");
+  console.log(`   ${trigger}`);
+}
+JSEOF
         else
             echo "⚠  CLAUDE.md exists but has no skills table. Add this line manually:"
             echo "   $TRIGGER_LINE"
