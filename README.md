@@ -80,7 +80,7 @@ Or fully manual — copy `skills/dream/SKILL.md` to `~/.claude/skills/dream/SKIL
 The skill runs 6 phases:
 
 1. **ORIENT** — reads `~/.claude/dream-last-run` and all existing memory files
-2. **FRICTION SCAN** — Python script extracts user messages matching ~25 friction patterns across all `.jsonl` logs since the last run; also captures prior assistant context so Claude understands what triggered each correction
+2. **FRICTION SCAN** — Node/TypeScript script extracts user messages matching ~25 friction patterns across all `.jsonl` logs since the last run; also captures prior assistant context so Claude understands what triggered each correction
 3. **PATTERN ANALYSIS** — Claude reasons through the signals: cross-references against existing rules, discards noise, clusters new patterns
 4. **MEMORY UPDATE** — writes new `feedback_*.md` files, reinforces violated rules, updates `MEMORY.md` index
 5. **SESSION REPORT** — saves a dated session report to your Obsidian vault (`~/.claude/dream-obsidian-vault`), a custom directory (`~/.claude/dream-report-dir`), or `~/.claude/dream-reports/` as a fallback
@@ -107,7 +107,7 @@ Just run commands — don't suggest the user run them in their terminal.
 ## Requirements
 
 - Claude Code v2.1.59+
-- Python 3 (stdlib only, no extra packages)
+- Node 22.18+ (runs the scan script natively, no extra packages)
 - No other dependencies
 
 ## Credits
